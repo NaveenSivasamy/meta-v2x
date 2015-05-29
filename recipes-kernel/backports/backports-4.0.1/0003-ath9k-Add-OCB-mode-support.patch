@@ -1,0 +1,238 @@
+From a1e9412827db2d5201e52523c08d8cee5933556a Mon Sep 17 00:00:00 2001
+From: Rostislav Lisovy <rostislav.lisovy@fel.cvut.cz>
+Date: Thu, 18 Dec 2014 12:34:34 +0100
+Subject: [PATCH] ath9k: Add OCB mode support
+
+This is quick-and-dirty work in progress
+
+Signed-off-by: Rostislav Lisovy <rostislav.lisovy@fel.cvut.cz>
+---
+ drivers/net/wireless/ath/ath9k/ani.c          |  1 +
+ drivers/net/wireless/ath/ath9k/ath9k.h        |  1 +
+ drivers/net/wireless/ath/ath9k/common-init.c  | 20 ++++++++++++++++++++
+ drivers/net/wireless/ath/ath9k/debug.c        |  4 ++--
+ drivers/net/wireless/ath/ath9k/htc_drv_init.c |  3 ++-
+ drivers/net/wireless/ath/ath9k/hw.c           |  1 +
+ drivers/net/wireless/ath/ath9k/hw.h           |  2 +-
+ drivers/net/wireless/ath/ath9k/init.c         |  3 ++-
+ drivers/net/wireless/ath/ath9k/main.c         | 15 ++++++++++++++-
+ drivers/net/wireless/ath/ath9k/recv.c         |  2 +-
+ drivers/net/wireless/ath/regd.c               |  8 ++++----
+ 11 files changed, 49 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/net/wireless/ath/ath9k/ani.c b/drivers/net/wireless/ath/ath9k/ani.c
+index ca01d17..56eb3e9 100644
+--- a/drivers/net/wireless/ath/ath9k/ani.c
++++ b/drivers/net/wireless/ath/ath9k/ani.c
+@@ -332,6 +332,7 @@ void ath9k_ani_reset(struct ath_hw *ah, bool is_scanning)
+ 
+ 	if (is_scanning ||
+ 	    (ah->opmode != NL80211_IFTYPE_STATION &&
++	     ah->opmode != NL80211_IFTYPE_OCB &&
+ 	     ah->opmode != NL80211_IFTYPE_ADHOC)) {
+ 		/*
+ 		 * If we're scanning or in AP mode, the defaults (ini)
+diff --git a/drivers/net/wireless/ath/ath9k/ath9k.h b/drivers/net/wireless/ath/ath9k/ath9k.h
+index 0f8e946..b302015 100644
+--- a/drivers/net/wireless/ath/ath9k/ath9k.h
++++ b/drivers/net/wireless/ath/ath9k/ath9k.h
+@@ -637,6 +637,7 @@ struct ath9k_vif_iter_data {
+ 	int nstations; /* number of station vifs */
+ 	int nwds;      /* number of WDS vifs */
+ 	int nadhocs;   /* number of adhoc vifs */
++	int nocbs;     /* number of OCB vifs */
+ 	struct ieee80211_vif *primary_sta;
+ };
+ 
+diff --git a/drivers/net/wireless/ath/ath9k/common-init.c b/drivers/net/wireless/ath/ath9k/common-init.c
+index a006c14..43a5a12 100644
+--- a/drivers/net/wireless/ath/ath9k/common-init.c
++++ b/drivers/net/wireless/ath/ath9k/common-init.c
+@@ -86,6 +86,26 @@ static const struct ieee80211_channel ath9k_5ghz_chantable[] = {
+ 	CHAN5G(5785, 35), /* Channel 157 */
+ 	CHAN5G(5805, 36), /* Channel 161 */
+ 	CHAN5G(5825, 37), /* Channel 165 */
++
++	CHAN5G(5850, 38), /* Channel 170 */
++	/* ITA-G5B */
++	CHAN5G(5855, 39), /* Channel 171 */
++	CHAN5G(5860, 40), /* Channel 172 */
++	CHAN5G(5865, 41), /* Channel 173 */
++	CHAN5G(5870, 42), /* Channel 174 */
++	/* ITS-G5A */
++	CHAN5G(5875, 43), /* Channel 175 */
++	CHAN5G(5880, 44), /* Channel 176 */
++	CHAN5G(5885, 45), /* Channel 177 */
++	CHAN5G(5890, 46), /* Channel 178 */
++	CHAN5G(5895, 47), /* Channel 179 */
++	CHAN5G(5900, 48), /* Channel 180 */
++	CHAN5G(5905, 49), /* Channel 181 */
++	/* ITS-G5D */
++	CHAN5G(5910, 50), /* Channel 182 */
++	CHAN5G(5915, 51), /* Channel 183 */
++	CHAN5G(5920, 52), /* Channel 184 */
++	CHAN5G(5925, 53), /* Channel 185 */
+ };
+ 
+ /* Atheros hardware rate code addition for short premble */
+diff --git a/drivers/net/wireless/ath/ath9k/debug.c b/drivers/net/wireless/ath/ath9k/debug.c
+index 50a2e0a..71d9e0e 100644
+--- a/drivers/net/wireless/ath/ath9k/debug.c
++++ b/drivers/net/wireless/ath/ath9k/debug.c
+@@ -741,8 +741,8 @@ static int read_file_misc(struct seq_file *file, void *data)
+ 			   i++, (int)(ctx->assigned), iter_data.naps,
+ 			   iter_data.nstations,
+ 			   iter_data.nmeshes, iter_data.nwds);
+-		seq_printf(file, " ADHOC: %i TOTAL: %hi BEACON-VIF: %hi\n",
+-			   iter_data.nadhocs, sc->cur_chan->nvifs,
++		seq_printf(file, " ADHOC: %i OCB: %i TOTAL: %hi BEACON-VIF: %hi\n",
++			   iter_data.nadhocs, iter_data.nocbs, sc->cur_chan->nvifs,
+ 			   sc->nbcnvifs);
+ 	}
+ 
+diff --git a/drivers/net/wireless/ath/ath9k/htc_drv_init.c b/drivers/net/wireless/ath/ath9k/htc_drv_init.c
+index fd22940..06286f6 100644
+--- a/drivers/net/wireless/ath/ath9k/htc_drv_init.c
++++ b/drivers/net/wireless/ath/ath9k/htc_drv_init.c
+@@ -612,7 +612,8 @@ static void ath9k_set_hw_capab(struct ath9k_htc_priv *priv,
+ 		BIT(NL80211_IFTYPE_AP) |
+ 		BIT(NL80211_IFTYPE_P2P_GO) |
+ 		BIT(NL80211_IFTYPE_P2P_CLIENT) |
+-		BIT(NL80211_IFTYPE_MESH_POINT);
++		BIT(NL80211_IFTYPE_MESH_POINT) |
++		BIT(NL80211_IFTYPE_OCB);
+ 
+ 	hw->wiphy->iface_combinations = &if_comb;
+ 	hw->wiphy->n_iface_combinations = 1;
+diff --git a/drivers/net/wireless/ath/ath9k/hw.c b/drivers/net/wireless/ath/ath9k/hw.c
+index 60aa8d7..2830c64 100644
+--- a/drivers/net/wireless/ath/ath9k/hw.c
++++ b/drivers/net/wireless/ath/ath9k/hw.c
+@@ -1198,6 +1198,7 @@ static void ath9k_hw_set_operating_mode(struct ath_hw *ah, int opmode)
+ 	u32 set = AR_STA_ID1_KSRCH_MODE;
+ 
+ 	switch (opmode) {
++	case NL80211_IFTYPE_OCB:
+ 	case NL80211_IFTYPE_ADHOC:
+ 		if (!AR_SREV_9340_13(ah)) {
+ 			set |= AR_STA_ID1_ADHOC;
+diff --git a/drivers/net/wireless/ath/ath9k/hw.h b/drivers/net/wireless/ath/ath9k/hw.h
+index e82e570..e25579e 100644
+--- a/drivers/net/wireless/ath/ath9k/hw.h
++++ b/drivers/net/wireless/ath/ath9k/hw.h
+@@ -72,7 +72,7 @@
+ 
+ #define ATH9K_RSSI_BAD			-128
+ 
+-#define ATH9K_NUM_CHANNELS	38
++#define ATH9K_NUM_CHANNELS	54
+ 
+ /* Register read/write primitives */
+ #define REG_WRITE(_ah, _reg, _val) \
+diff --git a/drivers/net/wireless/ath/ath9k/init.c b/drivers/net/wireless/ath/ath9k/init.c
+index 6c6e884..d97daf9 100644
+--- a/drivers/net/wireless/ath/ath9k/init.c
++++ b/drivers/net/wireless/ath/ath9k/init.c
+@@ -834,7 +834,8 @@ static void ath9k_set_hw_capab(struct ath_softc *sc, struct ieee80211_hw *hw)
+ 			BIT(NL80211_IFTYPE_STATION) |
+ 			BIT(NL80211_IFTYPE_ADHOC) |
+ 			BIT(NL80211_IFTYPE_MESH_POINT) |
+-			BIT(NL80211_IFTYPE_WDS);
++			BIT(NL80211_IFTYPE_WDS) |
++			BIT(NL80211_IFTYPE_OCB);
+ 
+ 			hw->wiphy->iface_combinations = if_comb;
+ 			hw->wiphy->n_iface_combinations = ARRAY_SIZE(if_comb);
+diff --git a/drivers/net/wireless/ath/ath9k/main.c b/drivers/net/wireless/ath/ath9k/main.c
+index 9ede991..def597a 100644
+--- a/drivers/net/wireless/ath/ath9k/main.c
++++ b/drivers/net/wireless/ath/ath9k/main.c
+@@ -936,6 +936,7 @@ static void ath9k_vif_iter(struct ath9k_vif_iter_data *iter_data,
+ 		if (avp->assoc && !iter_data->primary_sta)
+ 			iter_data->primary_sta = vif;
+ 		break;
++	case NL80211_IFTYPE_OCB:
+ 	case NL80211_IFTYPE_ADHOC:
+ 		iter_data->nadhocs++;
+ 		if (vif->bss_conf.enable_beacon)
+@@ -1109,6 +1110,8 @@ void ath9k_calculate_summary_state(struct ath_softc *sc,
+ 
+ 		if (iter_data.nmeshes)
+ 			ah->opmode = NL80211_IFTYPE_MESH_POINT;
++		else if (iter_data.nocbs)
++			ah->opmode = NL80211_IFTYPE_OCB;
+ 		else if (iter_data.nwds)
+ 			ah->opmode = NL80211_IFTYPE_AP;
+ 		else if (iter_data.nadhocs)
+@@ -1120,7 +1123,8 @@ void ath9k_calculate_summary_state(struct ath_softc *sc,
+ 	ath9k_hw_setopmode(ah);
+ 
+ 	ctx->switch_after_beacon = false;
+-	if ((iter_data.nstations + iter_data.nadhocs + iter_data.nmeshes) > 0)
++	if ((iter_data.nstations + iter_data.nadhocs +
++	     iter_data.nmeshes + iter_data.nocbs) > 0)
+ 		ah->imask |= ATH9K_INT_TSFOOR;
+ 	else {
+ 		ah->imask &= ~ATH9K_INT_TSFOOR;
+@@ -1730,6 +1734,15 @@ static void ath9k_bss_info_changed(struct ieee80211_hw *hw,
+ 		ath9k_hw_write_associd(sc->sc_ah);
+ 	}
+ 
++	/* FIXME -- fix the functionality
++	 * this is just copied from BSS_CHANGED_IBSS as a placeholder
++	 */
++	if (changed & BSS_CHANGED_OCB) {
++		memcpy(common->curbssid, bss_conf->bssid, ETH_ALEN);
++		common->curaid = bss_conf->aid;
++		ath9k_hw_write_associd(sc->sc_ah);
++	}
++
+ 	if ((changed & BSS_CHANGED_BEACON_ENABLED) ||
+ 	    (changed & BSS_CHANGED_BEACON_INT) ||
+ 	    (changed & BSS_CHANGED_BEACON_INFO)) {
+diff --git a/drivers/net/wireless/ath/ath9k/recv.c b/drivers/net/wireless/ath/ath9k/recv.c
+index 6fb40ef..9523cdc 100644
+--- a/drivers/net/wireless/ath/ath9k/recv.c
++++ b/drivers/net/wireless/ath/ath9k/recv.c
+@@ -408,7 +408,7 @@ u32 ath_calcrxfilter(struct ath_softc *sc)
+ 	    (sc->cur_chan->nvifs <= 1) &&
+ 	    !(sc->cur_chan->rxfilter & FIF_BCN_PRBRESP_PROMISC))
+ 		rfilt |= ATH9K_RX_FILTER_MYBEACON;
+-	else
++	else if (sc->sc_ah->opmode != NL80211_IFTYPE_OCB)
+ 		rfilt |= ATH9K_RX_FILTER_BEACON;
+ 
+ 	if ((sc->sc_ah->opmode == NL80211_IFTYPE_AP) ||
+diff --git a/drivers/net/wireless/ath/regd.c b/drivers/net/wireless/ath/regd.c
+index 06ea6cc..b1e4171 100644
+--- a/drivers/net/wireless/ath/regd.c
++++ b/drivers/net/wireless/ath/regd.c
+@@ -45,9 +45,9 @@ static int __ath_regd_init(struct ath_regulatory *reg);
+ /* We allow IBSS on these on a case by case basis by regulatory domain */
+ #define ATH9K_5GHZ_5150_5350	REG_RULE(5150-10, 5350+10, 80, 0, 30,\
+ 					 NL80211_RRF_NO_IR)
+-#define ATH9K_5GHZ_5470_5850	REG_RULE(5470-10, 5850+10, 80, 0, 30,\
++#define ATH9K_5GHZ_5470_5925	REG_RULE(5470-10, 5925+10, 80, 0, 30,\
+ 					 NL80211_RRF_NO_IR)
+-#define ATH9K_5GHZ_5725_5850	REG_RULE(5725-10, 5850+10, 80, 0, 30,\
++#define ATH9K_5GHZ_5725_5925	REG_RULE(5725-10, 5925+10, 80, 0, 30,\
+ 					 NL80211_RRF_NO_IR)
+ 
+ #define ATH9K_2GHZ_ALL		ATH9K_2GHZ_CH01_11, \
+@@ -55,11 +55,11 @@ static int __ath_regd_init(struct ath_regulatory *reg);
+ 				ATH9K_2GHZ_CH14
+ 
+ #define ATH9K_5GHZ_ALL		ATH9K_5GHZ_5150_5350, \
+-				ATH9K_5GHZ_5470_5850
++				ATH9K_5GHZ_5470_5925
+ 
+ /* This one skips what we call "mid band" */
+ #define ATH9K_5GHZ_NO_MIDBAND	ATH9K_5GHZ_5150_5350, \
+-				ATH9K_5GHZ_5725_5850
++				ATH9K_5GHZ_5725_5925
+ 
+ /* Can be used for:
+  * 0x60, 0x61, 0x62 */
+-- 
+2.1.0
+
