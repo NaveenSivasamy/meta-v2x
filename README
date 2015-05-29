@@ -1,0 +1,13 @@
+Yocto Meta Layer for V2X (Vehicle to Everything)
+
+This layer depends on:
+
+URI: git://git.yoctoproject.org/poky.git
+branch: fido
+revision: HEAD
+
+URI: git://github.com/openembedded/oe-core.git
+branch: fido
+revision: HEAD
+
+Maintainer: Steve Kwon <steve.kwon@zenomc.co.kr>
