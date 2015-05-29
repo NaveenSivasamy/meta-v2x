@@ -1,0 +1,93 @@
+From 3fce58aafc3a28cbfbb496d7797e250eea99b6cb Mon Sep 17 00:00:00 2001
+From: Luciano Coelho <luciano.coelho@nokia.com>
+Date: Tue, 17 Mar 2015 16:11:48 +0200
+Subject: [PATCH 2/5] iw: implement scheduled scan
+
+Add sched_start, sched_stop and events parsing for scheduled scan.
+For now, only passive scans are supported.
+
+Signed-off-by: Luciano Coelho <luciano.coelho@intel.com>
+Signed-off-by: Johannes Berg <johannes.berg@intel.com>
+---
+ event.c |  9 +++++++++
+ info.c  |  6 ++++++
+ scan.c  | 29 +++++++++++++++++++++++++++++
+ 3 files changed, 44 insertions(+)
+
+diff --git a/event.c b/event.c
+index 71ab7f7..929854b 100644
+--- a/event.c
++++ b/event.c
+@@ -359,6 +359,15 @@ static int print_event(struct nl_msg *msg, void *arg)
+ 		}
+ 		printf("\n");
+ 		break;
++	case NL80211_CMD_START_SCHED_SCAN:
++		printf("scheduled scan started\n");
++		break;
++	case NL80211_CMD_SCHED_SCAN_STOPPED:
++		printf("sched scan stopped\n");
++		break;
++	case NL80211_CMD_SCHED_SCAN_RESULTS:
++		printf("got scheduled scan results\n");
++		break;
+ 	case NL80211_CMD_REG_CHANGE:
+ 		printf("regulatory domain change: ");
+ 
+diff --git a/info.c b/info.c
+index 1df503f..66887e3 100644
+--- a/info.c
++++ b/info.c
+@@ -232,6 +232,12 @@ next:
+ 	if (tb_msg[NL80211_ATTR_MAX_SCAN_IE_LEN])
+ 		printf("\tmax scan IEs length: %d bytes\n",
+ 		       nla_get_u16(tb_msg[NL80211_ATTR_MAX_SCAN_IE_LEN]));
++	if (tb_msg[NL80211_ATTR_MAX_NUM_SCHED_SCAN_SSIDS])
++		printf("\tmax # sched scan SSIDs: %d\n",
++		       nla_get_u8(tb_msg[NL80211_ATTR_MAX_NUM_SCHED_SCAN_SSIDS]));
++	if (tb_msg[NL80211_ATTR_MAX_MATCH_SETS])
++		printf("\tmax # match sets: %d\n",
++		       nla_get_u8(tb_msg[NL80211_ATTR_MAX_MATCH_SETS]));
+ 
+ 	if (tb_msg[NL80211_ATTR_WIPHY_FRAG_THRESHOLD]) {
+ 		unsigned int frag;
+diff --git a/scan.c b/scan.c
+index d1c3bf2..e534fd4 100644
+--- a/scan.c
++++ b/scan.c
+@@ -1980,3 +1980,32 @@ COMMAND(scan, trigger, "[freq <freq>*] [ies <hex as 00:11:..>] [meshid <meshid>]
+ 	NL80211_CMD_TRIGGER_SCAN, 0, CIB_NETDEV, handle_scan,
+ 	 "Trigger a scan on the given frequencies with probing for the given\n"
+ 	 "SSIDs (or wildcard if not given) unless passive scanning is requested.");
++
++
++static int handle_start_sched_scan(struct nl80211_state *state,
++				   struct nl_cb *cb, struct nl_msg *msg,
++				   int argc, char **argv, enum id_input id)
++{
++	return parse_sched_scan(msg, &argc, &argv);
++}
++
++static int handle_stop_sched_scan(struct nl80211_state *state, struct nl_cb *cb,
++				  struct nl_msg *msg, int argc, char **argv,
++				  enum id_input id)
++{
++	if (argc != 0)
++		return 1;
++
++	return 0;
++}
++
++COMMAND(scan, sched_start,
++	SCHED_SCAN_OPTIONS,
++	NL80211_CMD_START_SCHED_SCAN, 0, CIB_NETDEV, handle_start_sched_scan,
++	"Start a scheduled scan at the specified interval on the given frequencies\n"
++	"with probing for the given SSIDs (or wildcard if not given) unless passive\n"
++	"scanning is requested.  If matches are specified, only matching results\n"
++	"will be returned.");
++COMMAND(scan, sched_stop, "",
++	NL80211_CMD_STOP_SCHED_SCAN, 0, CIB_NETDEV, handle_stop_sched_scan,
++	"Stop an ongoing scheduled scan.");
+-- 
+2.1.0
+
